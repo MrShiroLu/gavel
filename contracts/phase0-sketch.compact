@@ -1,0 +1,273 @@
+// ============================================================================
+// PHASE 0 MECHANISM SPIKE — UNCOMPILED SKETCH
+// ============================================================================
+// This file is a paper design only. The Compact compiler is NOT installed on
+// this machine yet (toolchain install pending per PLAN.md Phase 1 status).
+// Nothing here has been compiled, type-checked, or proof-tested. Do not treat
+// any of this as verified — it exists to compare the two settlement
+// candidates from PLAN.md section 4 before committing engineering time to
+// either one.
+//
+// This file intentionally contains TWO alternative ledger/circuit designs
+// (Candidate 1 and Candidate 2) that share a common bidding-phase preamble
+// but diverge in the settlement phase. They are NOT meant to compile
+// together as a single contract — a real Phase 1 contract would keep only
+// one of the two settlement sections. They are kept side by side here so the
+// analysis in phase0-spike-notes.md can reference concrete circuit shapes
+// for both.
+//
+// Simplifying assumption for this sketch (documented, not a final decision):
+// one auction == one deployed contract instance, following the official
+// bboard example's pattern (one bulletin board per deployment). A
+// multi-auction registry contract is a separate design question deferred to
+// Phase 1/3; it does not change the settlement-mechanism comparison below.
+//
+// Config note (CLAUDE.md hard rule: tunable values live only in a config
+// module, never hardcoded): the `const` values below stand in for what would
+// be imported from a dedicated config module once the project has a real
+// build. They are written as named constants here, not inlined literals, so
+// the eventual extraction is mechanical.
+// ============================================================================
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// ----------------------------------------------------------------------------
+// Shared types
+// ----------------------------------------------------------------------------
+
+// Lifecycle per PLAN.md section 4. Cancelled is reachable only from Bidding
+// with zero bids recorded (bidCount == 0) — enforced in closeBidding().
+export enum AuctionState {
+  Created,
+  Bidding,
+  SettlementWindow,
+  Settled,
+  Cancelled
+}
+
+// Stand-ins for config-module constants (see file header note).
+// Real values are seller-configurable auction parameters per PLAN.md 4.
+const MIN_BID_DEFAULT: Uint<64> = 1;
+const MIN_INCREMENT_DEFAULT: Uint<64> = 1;
+// Candidate 2 only: cap on challenge rounds so a challenge war cannot extend
+// the settlement window indefinitely (see notes file, griefing discussion).
+const MAX_CHALLENGE_ROUNDS: Uint<16> = 8;
+
+// Domain-separation prefixes, following the bboard example's
+// `pad(32, "bboard:pk:")` convention, so hashes for different purposes
+// (bidder identity vs. nullifier vs. bid commitment) can never collide even
+// if the same underlying secret/value were reused across purposes.
+const DOMAIN_BIDDER_ID: Opaque<"string"> = "gavel:bidder-id:";
+const DOMAIN_NULLIFIER: Opaque<"string"> = "gavel:nullifier:";
+
+// ----------------------------------------------------------------------------
+// Shared ledger state (both candidates need this during the Bidding phase)
+// ----------------------------------------------------------------------------
+
+export ledger state: AuctionState;
+
+// Seller identity, derived the same way bidder identity is (see
+// deriveBidderId below) so the seller is not linked to a plaintext address
+// until they choose to claim proceeds after settlement.
+export sealed ledger sellerId: Bytes<32>;
+
+// Auction parameters. Sealed: fixed at creation, per CLAUDE.md's "tunable
+// values are config, not hardcoded, but auction *instances* still need their
+// own fixed parameters" — these are per-auction inputs, not global literals.
+export sealed ledger minBid: Uint<64>;
+export sealed ledger minIncrement: Uint<64>;
+export sealed ledger biddingDeadline: Uint<64>;   // ledger block height or timestamp
+export sealed ledger settlementDeadline: Uint<64>;
+
+// Public bid count — PLAN.md section 4 says the *number* of sealed bids is
+// public forever, so this is an intentional disclosure, not a leak.
+export ledger bidCount: Counter;
+
+// One nullifier per wallet per auction. Enforces "one active bid per wallet"
+// (PLAN.md section 4, Bidding rules) without linking the nullifier back to a
+// wallet address.
+export ledger nullifiers: Set<Bytes<32>>;
+
+// bidderId -> sealed commitment to (amount, nonce). Only commitments are
+// stored during Bidding; amounts are never disclosed here.
+export ledger commitments: Map<Bytes<32>, Bytes<32>>;
+
+// ----------------------------------------------------------------------------
+// Shared witnesses
+// ----------------------------------------------------------------------------
+
+// Per-wallet secret, held in local private state and supplied by the TS
+// driver — same role as `localSecretKey` in the official bboard example.
+// Never appears on-chain except hashed through deriveBidderId/deriveNullifier.
+witness localSecretKey(): Bytes<32>;
+
+// ----------------------------------------------------------------------------
+// Shared circuits
+// ----------------------------------------------------------------------------
+
+// Deterministic per-auction bidder identity, analogous to bboard's
+// publicKey() circuit. Same secret + same auction (contract instance)
+// always yields the same id, which lets a bidder prove "I am the holder of
+// commitment X" later without revealing the secret itself.
+circuit deriveBidderId(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, DOMAIN_BIDDER_ID), sk]);
+}
+
+// Nullifier is domain-separated from the bidder id so the same secret
+// produces unlinkable outputs for the two different purposes.
+circuit deriveNullifier(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, DOMAIN_NULLIFIER), sk]);
+}
+
+export circuit createAuction(
+  seller: Bytes<32>,
+  bidFloor: Uint<64>,
+  increment: Uint<64>,
+  biddingClose: Uint<64>,
+  settleClose: Uint<64>
+): [] {
+  sellerId = disclose(seller);
+  minBid = disclose(bidFloor);
+  minIncrement = disclose(increment);
+  biddingDeadline = disclose(biddingClose);
+  settlementDeadline = disclose(settleClose);
+  state = AuctionState.Created;
+}
+
+export circuit openBidding(): [] {
+  assert(state == AuctionState.Created, "Auction is not in Created state");
+  state = AuctionState.Bidding;
+}
+
+// commitment = persistentCommit<Uint<64>>(amount, nonce), computed client-side
+// before calling this circuit. amount/nonce themselves never touch the
+// ledger here — only their commitment does.
+export circuit submitBid(commitment: Bytes<32>): [] {
+  assert(state == AuctionState.Bidding, "Auction is not accepting bids");
+  // NOTE: deadline comparison assumes a ledger-visible clock/height binding;
+  // exact mechanism (block height vs. oracle timestamp) is a Phase 1 detail,
+  // not a Phase 0 mechanism concern.
+  const nul = deriveNullifier(localSecretKey());
+  assert(!nullifiers.member(disclose(nul)), "This wallet already has an active bid");
+  const bidderId = deriveBidderId(localSecretKey());
+  nullifiers.insert(disclose(nul));
+  commitments.insert(disclose(bidderId), disclose(commitment));
+  bidCount.increment(1);
+}
+
+export circuit closeBidding(): [] {
+  assert(state == AuctionState.Bidding, "Auction is not in Bidding state");
+  if (bidCount == 0) {
+    state = AuctionState.Cancelled;
+  } else {
+    state = AuctionState.SettlementWindow;
+  }
+}
+
+// ============================================================================
+// CANDIDATE 1 — SETTLEMENT-WINDOW ROLLING MAXIMUM  (recommended, see notes)
+// ============================================================================
+// One circuit per bidder settlement, one circuit to claim the win. No
+// re-opening windows, no round bookkeeping. See phase0-spike-notes.md for
+// the full comparison; short version: same leak profile as Candidate 2 with
+// meaningfully less ledger state and fewer circuits.
+
+export ledger c1_currentMaxAmount: Uint<64>;   // public running max, 0 until first settle
+export ledger c1_currentLeaderId: Bytes<32>;   // bidderId of current leader
+export ledger c1_settled: Set<Bytes<32>>;      // bidderIds that already settled (idempotency)
+export ledger c1_winnerAddress: Bytes<32>;     // set only at finalize, per PLAN.md's
+                                                 // "winner as an anonymous claim ticket or
+                                                 // an address the winner chooses to use"
+
+// Bidder opens their own commitment in-circuit. amount/nonce are ordinary
+// (private) circuit arguments — they are witnessed by virtue of being
+// caller-supplied proof inputs, not ledger reads, so nothing here is
+// disclosed unless this bidder is the new leader.
+export circuit c1_settleBid(amount: Uint<64>, nonce: Bytes<32>): [] {
+  assert(state == AuctionState.SettlementWindow, "Not in settlement window");
+  const bidderId = deriveBidderId(localSecretKey());
+  assert(!c1_settled.member(disclose(bidderId)), "Already settled");
+  const stored = commitments.lookup(disclose(bidderId));
+  assert(persistentCommit<Uint<64>>(amount, nonce) == stored,
+         "Amount/nonce do not match stored commitment");
+  assert(amount >= minBid, "Bid below auction floor");
+
+  c1_settled.insert(disclose(bidderId));
+
+  // The only conditional disclosure in the whole design: if this bidder does
+  // not exceed the current max, nothing about their amount is ever written
+  // to the ledger. If they do, the new max and leader id become public.
+  if (amount > c1_currentMaxAmount) {
+    c1_currentMaxAmount = disclose(amount);
+    c1_currentLeaderId = disclose(bidderId);
+  }
+}
+
+// Called by the current leader after settlementDeadline passes with no
+// higher settlement recorded. Mirrors bboard's ownership-proof pattern:
+// prove you hold the secret behind c1_currentLeaderId, then disclose the
+// address you want recorded as the public winner.
+export circuit c1_finalizeSettlement(claimedAddress: Bytes<32>): [] {
+  assert(state == AuctionState.SettlementWindow, "Not in settlement window");
+  const bidderId = deriveBidderId(localSecretKey());
+  assert(bidderId == c1_currentLeaderId, "Caller is not the recorded leader");
+  c1_winnerAddress = disclose(claimedAddress);
+  state = AuctionState.Settled;
+}
+
+// ============================================================================
+// CANDIDATE 2 — CLAIM-AND-CHALLENGE  (alternative, not selected)
+// ============================================================================
+// Kept for paper comparison only. Same core "open commitment, compare,
+// conditionally disclose" logic as Candidate 1, plus a challenge-round state
+// machine (claim -> challenge -> re-open -> ... -> finalize) that Candidate 1
+// does not need. See phase0-spike-notes.md for why this was not chosen.
+
+export ledger c2_claimedAmount: Uint<64>;
+export ledger c2_claimedLeaderId: Bytes<32>;
+export ledger c2_challengeDeadline: Uint<64>;   // extended on every successful challenge
+export ledger c2_challengeRounds: Counter;      // bounded by MAX_CHALLENGE_ROUNDS
+export ledger c2_winnerAddress: Bytes<32>;
+
+export circuit c2_claimVictory(amount: Uint<64>, nonce: Bytes<32>, challengeWindow: Uint<64>): [] {
+  assert(state == AuctionState.SettlementWindow, "Not in settlement window");
+  assert(c2_claimedAmount == 0, "A claim already exists; use c2_challenge instead");
+  const bidderId = deriveBidderId(localSecretKey());
+  const stored = commitments.lookup(disclose(bidderId));
+  assert(persistentCommit<Uint<64>>(amount, nonce) == stored,
+         "Amount/nonce do not match stored commitment");
+  assert(amount >= minBid, "Bid below auction floor");
+
+  c2_claimedAmount = disclose(amount);
+  c2_claimedLeaderId = disclose(bidderId);
+  // NOTE: real deadline arithmetic (current time/height + challengeWindow)
+  // is a Phase 1 detail; sketched here as a disclosed parameter only to
+  // keep this circuit self-contained on paper.
+  c2_challengeDeadline = disclose(challengeWindow);
+}
+
+export circuit c2_challenge(amount: Uint<64>, nonce: Bytes<32>): [] {
+  assert(state == AuctionState.SettlementWindow, "Not in settlement window");
+  assert(c2_challengeRounds < MAX_CHALLENGE_ROUNDS, "Challenge round limit reached");
+  const bidderId = deriveBidderId(localSecretKey());
+  const stored = commitments.lookup(disclose(bidderId));
+  assert(persistentCommit<Uint<64>>(amount, nonce) == stored,
+         "Amount/nonce do not match stored commitment");
+  assert(amount > c2_claimedAmount, "Challenge does not exceed current claim");
+
+  c2_claimedAmount = disclose(amount);
+  c2_claimedLeaderId = disclose(bidderId);
+  c2_challengeRounds.increment(1);
+  // Window reset/extension omitted — this is exactly the mechanic flagged
+  // as a griefing surface in the notes file.
+}
+
+export circuit c2_finalizeClaim(claimedAddress: Bytes<32>): [] {
+  assert(state == AuctionState.SettlementWindow, "Not in settlement window");
+  const bidderId = deriveBidderId(localSecretKey());
+  assert(bidderId == c2_claimedLeaderId, "Caller is not the recorded claimant");
+  c2_winnerAddress = disclose(claimedAddress);
+  state = AuctionState.Settled;
+}
