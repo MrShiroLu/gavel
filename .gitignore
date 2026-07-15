@@ -17,6 +17,7 @@ build/
 
 # Contract artifacts
 contracts/managed/
+contracts/phase0-spike/managed/
 
 # Deployment info
 deployment.json

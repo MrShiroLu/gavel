@@ -7,6 +7,8 @@
   "license": "MIT",
   "scripts": {
     "compile": "compact compile contracts/hello-world.compact contracts/managed/hello-world",
+    "compile:phase0": "compact compile contracts/phase0-spike/settlement.compact contracts/phase0-spike/managed/settlement",
+    "test:phase0": "npm run compile:phase0 && tsx scripts/phase0-settlement-check.ts",
     "build": "npx tsc --noEmit || true",
     "setup": "npx tsx src/setup.ts",
     "deploy": "npx tsx src/deploy.ts",

@@ -1,0 +1,120 @@
+// Phase 0 mechanism spike: settlement-window rolling maximum (PLAN.md
+// section 4, Candidate 1 — the decision recorded there after this spike).
+// Deadline/clock handling is a Phase 1+ detail (block height vs. oracle
+// timestamp); this spike drives lifecycle transitions with explicit calls
+// (openBidding/closeBidding) instead, since it only needs to prove the
+// commit -> conditional-disclosure settlement logic works at all.
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+export enum AuctionState {
+  Created,
+  Bidding,
+  SettlementWindow,
+  Settled
+}
+
+export ledger state: AuctionState;
+export ledger sellerId: Bytes<32>;
+export ledger minBid: Uint<64>;
+export ledger bidCount: Counter;
+
+// One nullifier per wallet per auction (one active bid per wallet, PLAN.md
+// section 4 bidding rules) without linking the nullifier to a wallet address.
+export ledger nullifiers: Set<Bytes<32>>;
+
+// bidderId -> commitment to (amount, nonce). Only the commitment is ever
+// stored during Bidding; the amount itself never touches the ledger here.
+export ledger commitments: Map<Bytes<32>, Bytes<32>>;
+
+// Rolling maximum during the settlement window. currentMaxAmount stays 0
+// (and currentLeaderId unset) until the first bidder settles above minBid.
+export ledger currentMaxAmount: Uint<64>;
+export ledger currentLeaderId: Bytes<32>;
+export ledger settled: Set<Bytes<32>>;
+export ledger winnerAddress: Bytes<32>;
+
+constructor(seller: Bytes<32>, bidFloor: Uint<64>) {
+  sellerId = disclose(seller);
+  minBid = disclose(bidFloor);
+  state = AuctionState.Created;
+}
+
+// Per-wallet secret, supplied from local private state by the TS driver.
+// Never appears on-chain except hashed through the two derive circuits.
+witness localSecretKey(): Bytes<32>;
+
+export circuit deriveBidderId(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "gavel:bidder-id:"), sk]);
+}
+
+export circuit deriveNullifier(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "gavel:nullifier:"), sk]);
+}
+
+// Exposed so the off-chain driver can build a commitment client-side before
+// calling submitBid — the same hash the circuit checks internally in
+// settleBid, never computed by TS from scratch.
+export circuit computeCommitment(amount: Uint<64>, nonce: Bytes<32>): Bytes<32> {
+  return persistentCommit<Uint<64>>(amount, nonce);
+}
+
+export circuit openBidding(): [] {
+  assert(state == AuctionState.Created, "Auction is not in Created state");
+  state = AuctionState.Bidding;
+}
+
+// commitment = persistentCommit<Uint<64>>(amount, nonce), computed
+// client-side before calling this circuit.
+export circuit submitBid(commitment: Bytes<32>): [] {
+  assert(state == AuctionState.Bidding, "Auction is not accepting bids");
+  const nul = deriveNullifier(localSecretKey());
+  assert(!nullifiers.member(disclose(nul)), "This wallet already has an active bid");
+  const bidderId = deriveBidderId(localSecretKey());
+  nullifiers.insert(disclose(nul));
+  commitments.insert(disclose(bidderId), disclose(commitment));
+  bidCount.increment(1);
+}
+
+export circuit closeBidding(): [] {
+  assert(state == AuctionState.Bidding, "Auction is not in Bidding state");
+  assert(bidCount > 0, "Cannot close an auction with zero bids");
+  state = AuctionState.SettlementWindow;
+}
+
+// Bidder opens their own commitment in-circuit. amount/nonce are ordinary
+// (private) circuit arguments, never disclosed unless this bidder becomes
+// the new leader — the only conditional disclosure in this contract.
+export circuit settleBid(amount: Uint<64>, nonce: Bytes<32>): [] {
+  assert(state == AuctionState.SettlementWindow, "Not in settlement window");
+  const bidderId = deriveBidderId(localSecretKey());
+  assert(!settled.member(disclose(bidderId)), "Already settled");
+  const stored = commitments.lookup(disclose(bidderId));
+  assert(persistentCommit<Uint<64>>(amount, nonce) == stored,
+         "Amount/nonce do not match stored commitment");
+  assert(amount >= minBid, "Bid below auction floor");
+
+  settled.insert(disclose(bidderId));
+
+  // The comparison result itself must be disclosed before it can gate a
+  // ledger write — otherwise the write's occurrence would leak the boolean
+  // outcome of a witness-value comparison without an explicit disclosure.
+  const isNewMax = disclose(amount > currentMaxAmount);
+  if (isNewMax) {
+    currentMaxAmount = disclose(amount);
+    currentLeaderId = disclose(bidderId);
+  }
+}
+
+// Called by the current leader once no higher settlement is expected.
+// Proves ownership of the leader id, then discloses the address the leader
+// wants recorded as the public winner.
+export circuit finalizeSettlement(claimedAddress: Bytes<32>): [] {
+  assert(state == AuctionState.SettlementWindow, "Not in settlement window");
+  const bidderId = deriveBidderId(localSecretKey());
+  assert(bidderId == currentLeaderId, "Caller is not the recorded leader");
+  winnerAddress = disclose(claimedAddress);
+  state = AuctionState.Settled;
+}
