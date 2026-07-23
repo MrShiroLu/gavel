@@ -60,5 +60,12 @@ temp/
 # Midnight wallet sync state (per-network serialized wallet state cache)
 .midnight-wallet-state/
 
+# Per-role wallet seeds/state for the Preprod three-wallet auction check
+.midnight-preprod-auction/
+
 # Private-state provider storage (levelPrivateStateProvider)
 midnight-level-db/
+
+# Raw source media for generated frontend assets (anim frame sequence,
+# art thumbnail) — not meant to be tracked in git
+frontend/assets/
