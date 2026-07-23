@@ -5,9 +5,20 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  # devnet-checks (below) does not run on push/pull_request — it's the
+  # 45-minute-plus job gated by contracts/config.ts's real auction windows.
+  # These two triggers are what actually run it: a nightly schedule to keep
+  # the on-chain path exercised without blocking every push, and a manual
+  # dispatch for on-demand runs.
+  schedule:
+    # 03:00 UTC: outside typical US/EU working hours, a quiet window for a
+    # ~90-minute job. Arbitrary otherwise — adjust freely if it collides
+    # with anything.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}
 
 jobs:
-  compile-and-e2e:
+  fast-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,17 +37,112 @@ jobs:
       - name: Update Compact compiler
         run: compact update
 
-      - name: Compile contract
+      - name: Compile and test auction contract (simulator)
+        run: npm run test:auction
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: frontend
+
+      - name: Build frontend
+        # Depends on contracts/managed/auction (keys, zkir, contract/index.js),
+        # produced by the "test:auction" step above in this same job. GitHub
+        # Actions does NOT share the filesystem across jobs, only within one —
+        # keep this build in the same job as that compile step, or copy the
+        # artifact explicitly if it's ever split out.
+        run: npm run build
+        working-directory: frontend
+
+  devnet-checks:
+    needs: fast-checks
+    # Runs only on the nightly schedule or a manual dispatch — never on push
+    # or pull_request. This job waits out real auction deadlines
+    # (contracts/config.ts's ONCHAIN_CHECK_*_WINDOW_SECONDS, currently 1800s +
+    # 900s = 45 minutes minimum) plus proof generation and devnet startup, so
+    # it does not belong in the on-every-push fast path. fast-checks above is
+    # what the README CI badge should reflect.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # --- Job timeout arithmetic (100 min total) ---
+    # Everything in this job except the on-chain lifecycle step, worst case
+    # on a cold runner:
+    #   ~5 min  checkout, setup-node, install/update Compact toolchain, npm ci
+    #   ~3 min  compile hello-world contract
+    #   ~10 min docker compose up -d --wait — cold image pulls for
+    #           midnight-node + indexer-standalone + proof-server, no cache
+    #   ~5 min  deploy hello-world + hello-world e2e check (one
+    #           proof-generating transaction plus a wallet sync)
+    #   ~2 min  teardown
+    # That's ~25 min of overhead. The "Run auction on-chain lifecycle check"
+    # step below carries its own 75-minute timeout (see the comment on that
+    # step for its arithmetic). 25 + 75 = 100, so the job timeout matches the
+    # sum of its own step timeouts with no extra slack needed on top.
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Compact toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - run: npm ci
+
+      - name: Update Compact compiler
+        run: compact update
+
+      - name: Compile hello-world contract
         run: npm run compile
 
       - name: Start local devnet
         run: docker compose up -d --wait
 
-      - name: Deploy to local devnet
+      - name: Deploy hello-world to local devnet
         run: npm run deploy
 
-      - name: Run e2e check
+      - name: Run hello-world e2e check
         run: npm run test:e2e
+
+      - name: Run auction on-chain lifecycle check
+        # Compiles contracts/auction.compact, then deploys to the same local
+        # devnet and drives create -> bid -> close -> settle with real proofs.
+        #
+        # Timeout source of truth: contracts/config.ts,
+        # ONCHAIN_CHECK_BIDDING_WINDOW_SECONDS (1800s) and
+        # ONCHAIN_CHECK_SETTLEMENT_WINDOW_SECONDS (900s). scripts/auction-onchain-check.ts
+        # sleeps until each deadline unconditionally (waitUntil()), so 1800 +
+        # 900 = 2700s = 45 minutes is a MINIMUM wait, not an estimate, before
+        # this step can even reach the finalize step below.
+        #
+        # --- Step timeout arithmetic (75 min) ---
+        #   45 min  the two config.ts windows above (deterministic wait,
+        #           not reducible by faster proof generation)
+        #   10 min  finalizeSettlement — runs AFTER the settlement window
+        #           elapses, so it is NOT covered by either window above;
+        #           budgeted like the other proof-generating calls per
+        #           config.ts's own "~7-8 min per call, worst case" note
+        #    5 min  wallet creation, sync, and proof-server health check,
+        #           before the windows even start counting
+        #   15 min  margin — this exact class of drift (CI timeout not
+        #           updated when config.ts's windows changed) is the bug
+        #           this file is fixing; a slow-but-green run beats a false
+        #           failure at minute 46
+        #
+        # IMPORTANT: if ONCHAIN_CHECK_BIDDING_WINDOW_SECONDS or
+        # ONCHAIN_CHECK_SETTLEMENT_WINDOW_SECONDS in contracts/config.ts
+        # change, this timeout (and the job-level timeout above, and the
+        # PREPROD_CHECK_* equivalents if a preprod CI job is ever added) must
+        # be revisited in the same change. Do not let them drift apart again.
+        run: npm run test:auction:onchain
+        timeout-minutes: 75
 
       - name: Tear down devnet
         if: always()
