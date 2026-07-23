@@ -108,6 +108,7 @@ export function loadState(opts: FsOptions = {}): NetworkState | null {
 
 export function saveState(state: NetworkState, opts: FsOptions = {}): void {
   const p = statePath(opts);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
   // Write to a sibling tmp file then rename → atomic on POSIX.
   const tmp = `${p}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
