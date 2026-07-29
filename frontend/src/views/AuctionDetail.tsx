@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { useWallet } from '../wallet';
-import { configureProviders, createBrowserWalletProvider, joinAuctionContract, readAuctionState, pureCircuits, type AuctionLedger } from '../midnight';
+import { configureProviders, createBrowserWalletProvider, getUnshieldedUserAddress, joinAuctionContract, readAuctionState, pureCircuits, type AuctionLedger } from '../midnight';
 import { getOrCreateBidderPrivateState, storeBid, getStoredBid, peekBidderSecret } from '../privateState';
 import { auctionStateName, toHex, addressToClaimTicket } from '../auctionState';
 
@@ -12,8 +12,18 @@ const friendlyError = (raw: string): string => {
     return 'This wallet has already placed a sealed bid on this auction. Each wallet may bid once.';
   if (raw.includes('Only the seller can open bidding'))
     return 'Only the wallet that created this auction can open bidding.';
+  if (raw.includes('Only the seller can claim proceeds'))
+    return 'Only the wallet that created this auction can withdraw the proceeds.';
+  if (raw.includes('Caller is not the recorded leader'))
+    return 'Only the winning bidder can finalize and pay the winning amount.';
+  if (/insufficient|not enough|balance/i.test(raw))
+    return 'Your wallet does not have enough tDUST to cover the winning amount plus fees.';
   if (raw.includes('Bidding deadline has passed')) return 'The bidding window for this auction has closed.';
-  if (raw.includes('Settlement deadline has passed')) return 'The settlement window for this auction has closed.';
+  if (raw.includes('Settlement window has closed')) return 'The settlement window for this auction has closed.';
+  if (raw.includes('Bid below auction floor')) return 'Your revealed bid is below this auction’s minimum bid.';
+  if (raw.includes('Amount/nonce do not match stored commitment'))
+    return 'This wallet’s saved bid does not match what was submitted on chain. It may have been placed from a different browser.';
+  if (raw.includes('Seller cannot bid on their own auction')) return 'The seller cannot bid on their own auction.';
   if (raw.includes('Failed to fetch') || raw.includes('ERR_CONNECTION_REFUSED'))
     return 'Cannot reach the proof server (127.0.0.1:6300). Start it with "docker compose up -d proof-server" and try again.';
   return raw;
@@ -35,6 +45,7 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [bidAmount, setBidAmount] = useState('');
   const [now, setNow] = useState(() => Date.now());
@@ -81,7 +92,7 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
   // "Close bidding" / "Finalize" buttons stay hidden after the deadline
   // passes until something else happens to force a re-render.
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 5000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -122,7 +133,7 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
       const commitment = pureCircuits.computeCommitment(amount, nonce);
       await contract.callTx.submitBid(commitment);
       storeBid(account, address, amount, nonce);
-    }, 'Your sealed bid was recorded on chain. It stays secret until you settle it.');
+    });
 
   const settleMyBid = () =>
     run(async (contract, account) => {
@@ -136,19 +147,32 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
       if (!wallet.address) throw new Error('Wallet address unavailable.');
       const claimTicket = await addressToClaimTicket(wallet.address);
       await contract.callTx.finalizeSettlement(claimTicket);
-    }, 'Settlement finalized.');
+    }, 'You paid the winning amount into escrow. The seller can now withdraw it.');
+
+  const claimProceeds = () =>
+    run(async (contract) => {
+      if (!wallet.api) throw new Error('Wallet unavailable.');
+      const sellerAddress = await getUnshieldedUserAddress(wallet.api);
+      await contract.callTx.claimProceeds(sellerAddress);
+    }, 'The winning amount was sent to your wallet.');
 
   const stateName = auctionStateName(ledger.state);
   const nowSeconds = BigInt(Math.floor(now / 1000));
   const biddingDeadlinePassed = nowSeconds >= ledger.biddingDeadline;
   const settlementDeadlinePassed = nowSeconds >= ledger.settlementDeadline;
   const disabled = busy || wallet.status !== 'connected';
-  const alreadyBid = !!(accountId && getStoredBid(accountId, address));
+  const myStoredBid = accountId ? getStoredBid(accountId, address) : null;
+  const alreadyBid = !!myStoredBid;
 
-  // Is the connected wallet the seller? deriveBidderId of its stored secret
-  // matches the sellerId the contract recorded at deploy.
-  const sellerSecret = accountId ? peekBidderSecret(accountId, address) : null;
-  const isSeller = !!(sellerSecret && toHex(pureCircuits.deriveBidderId(sellerSecret)) === toHex(ledger.sellerId));
+  // Is the connected wallet the seller / the current settlement leader /
+  // already settled? deriveBidderId of its stored secret matches
+  // sellerId / currentLeaderId / a member of the on-chain settled set.
+  const mySecret = accountId ? peekBidderSecret(accountId, address) : null;
+  const myBidderIdBytes = mySecret ? pureCircuits.deriveBidderId(mySecret) : null;
+  const myBidderId = myBidderIdBytes ? toHex(myBidderIdBytes) : null;
+  const isSeller = myBidderId === toHex(ledger.sellerId);
+  const isWinner = !!(myBidderId && myBidderId === toHex(ledger.currentLeaderId));
+  const alreadySettled = !!(myBidderIdBytes && ledger.settled.member(myBidderIdBytes));
   const roleLabel = isSeller ? 'You are the seller' : alreadyBid ? 'You have placed a sealed bid' : null;
 
   const countdown =
@@ -163,9 +187,24 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
       <h2>Auction {address.slice(0, 10)}…</h2>
       <p className="contract-address">
         <code>{address}</code>
-        <button type="button" onClick={() => void navigator.clipboard?.writeText(address).then(() => setNotice('Contract address copied. Share it so others can join.'))}>
-          Copy address
-        </button>
+        <span className="copy-wrap">
+          <button
+            type="button"
+            onClick={() =>
+              void navigator.clipboard?.writeText(address).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              })
+            }
+          >
+            Copy address
+          </button>
+          {copied && (
+            <span className="copied-bubble" role="status">
+              Copied. Share it so others can join.
+            </span>
+          )}
+        </span>
       </p>
 
       {(roleLabel || countdown) && (
@@ -200,10 +239,16 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
         <dd>{new Date(Number(ledger.biddingDeadline) * 1000).toLocaleString()}</dd>
         <dt>Settlement deadline</dt>
         <dd>{new Date(Number(ledger.settlementDeadline) * 1000).toLocaleString()}</dd>
-        {ledger.state >= 2 && (
+        {myStoredBid && (
           <>
-            <dt>Running maximum (leak — PLAN.md section 4)</dt>
-            <dd>{ledger.currentMaxAmount.toString()}</dd>
+            <dt className="stat-key">Your bid</dt>
+            <dd className="stat-value">{myStoredBid.amount.toString()}</dd>
+          </>
+        )}
+        {(ledger.state === 2 || ledger.state === 3) && (
+          <>
+            <dt className="stat-key">{ledger.state === 3 ? 'Winning bid' : 'Highest revealed bid'}</dt>
+            <dd className="stat-value">{ledger.currentMaxAmount.toString()}</dd>
           </>
         )}
         {ledger.state === 3 && (
@@ -218,18 +263,14 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
       {error && <p role="alert">{error}</p>}
 
       <div className="detail-actions">
-      {stateName === 'Created' && (
+      {stateName === 'Created' && isSeller && (
         <button type="button" disabled={disabled} onClick={() => run((c) => c.callTx.openBidding(), 'Bidding is now open.')}>
           Open bidding
         </button>
       )}
 
-      {stateName === 'Bidding' && !biddingDeadlinePassed && isSeller && (
-        <p className="notice">You opened this auction. A seller cannot bid on their own auction; wait for the bidding window to close, then close bidding.</p>
-      )}
-
       {stateName === 'Bidding' && !biddingDeadlinePassed && !isSeller && alreadyBid && (
-        <p className="notice">You have already placed a sealed bid on this auction. Each wallet may bid once; settle it during the settlement window.</p>
+        <p className="notice">Your sealed bid is recorded. You can settle it once the bidding window closes.</p>
       )}
 
       {stateName === 'Bidding' && !biddingDeadlinePassed && !isSeller && !alreadyBid && (
@@ -241,7 +282,7 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
         >
           <label>
             Your sealed bid
-            <input type="number" min="0" value={bidAmount} onChange={(e) => setBidAmount(e.target.value)} required />
+            <input type="number" min={ledger.minBid.toString()} value={bidAmount} onChange={(e) => setBidAmount(e.target.value)} required />
           </label>
           <button type="submit" disabled={disabled}>Submit sealed bid</button>
         </form>
@@ -259,16 +300,30 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
         </button>
       )}
 
-      {stateName === 'SettlementWindow' && !settlementDeadlinePassed && (
+      {stateName === 'SettlementWindow' && !settlementDeadlinePassed && !isSeller && alreadyBid && !alreadySettled && (
         <button type="button" disabled={disabled} onClick={() => void settleMyBid()}>
           Settle my bid
         </button>
       )}
 
-      {stateName === 'SettlementWindow' && settlementDeadlinePassed && (
+      {stateName === 'SettlementWindow' && !isSeller && alreadySettled && !isWinner && (
+        <p className="notice">Your bid was revealed. Waiting to see if it holds as the highest.</p>
+      )}
+
+      {stateName === 'SettlementWindow' && settlementDeadlinePassed && isWinner && (
         <button type="button" disabled={disabled} onClick={() => void finalize()}>
-          Finalize as leader
+          Pay winning amount &amp; finalize
         </button>
+      )}
+
+      {stateName === 'Settled' && isSeller && !ledger.proceedsClaimed && (
+        <button type="button" disabled={disabled} onClick={() => void claimProceeds()}>
+          Withdraw proceeds ({ledger.currentMaxAmount.toString()})
+        </button>
+      )}
+
+      {stateName === 'Settled' && ledger.proceedsClaimed && (
+        <p className="notice">The seller has withdrawn the winning amount from escrow.</p>
       )}
 
         <button type="button" onClick={() => void refresh()}>Refresh</button>

@@ -56,7 +56,12 @@ export function CreateAuction({ wallet, onCreated }: { wallet: Wallet; onCreated
       setStatus('done');
       onCreated(address);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(
+        message.includes('Failed to fetch') || message.includes('ERR_CONNECTION_REFUSED')
+          ? 'Cannot reach the proof server (127.0.0.1:6300). Start it with "docker compose up -d proof-server" and try again.'
+          : message,
+      );
       setStatus('error');
     }
   };
@@ -78,7 +83,7 @@ export function CreateAuction({ wallet, onCreated }: { wallet: Wallet; onCreated
       </label>
       <label>
         Minimum bid
-        <input type="number" min="0" value={minBid} onChange={(e) => setMinBid(e.target.value)} required />
+        <input type="number" min="1" value={minBid} onChange={(e) => setMinBid(e.target.value)} required />
       </label>
       <label>
         Minimum increment

@@ -32,7 +32,7 @@ import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import * as ledgerApi from '@midnight-ntwrk/ledger-v8';
-import { MidnightBech32m, ShieldedAddress } from '@midnight-ntwrk/wallet-sdk-address-format';
+import { MidnightBech32m, ShieldedAddress, UnshieldedAddress } from '@midnight-ntwrk/wallet-sdk-address-format';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { TARGET_NETWORK_ID } from './wallet';
 
@@ -71,7 +71,8 @@ type AuctionCircuits =
   | 'closeBidding'
   | 'cancelAuction'
   | 'settleBid'
-  | 'finalizeSettlement';
+  | 'finalizeSettlement'
+  | 'claimProceeds';
 const AuctionPrivateStateId = 'gavelAuctionPrivateState';
 type AuctionProviders = MidnightProviders<AuctionCircuits, typeof AuctionPrivateStateId, BidderPrivateState>;
 type AuctionContract = Contract<BidderPrivateState>;
@@ -103,6 +104,18 @@ export const createBrowserWalletProvider = async (
       return tx.identifiers()[0];
     }
   };
+};
+
+// The seller's unshielded (UserAddress) payout target for claimProceeds.
+// Decoded the same way createBrowserWalletProvider decodes the shielded
+// address, but from getUnshieldedAddress — sendUnshielded pays a UserAddress,
+// not a shielded coin public key.
+export const getUnshieldedUserAddress = async (
+  connectedApi: ConnectedAPI
+): Promise<{ bytes: Uint8Array }> => {
+  const { unshieldedAddress } = await connectedApi.getUnshieldedAddress();
+  const parsed = MidnightBech32m.parse(unshieldedAddress).decode(UnshieldedAddress, TARGET_NETWORK_ID);
+  return { bytes: new Uint8Array(parsed.data) };
 };
 
 export const configureProviders = async (connectedApi: ConnectedAPI): Promise<AuctionProviders> => {
