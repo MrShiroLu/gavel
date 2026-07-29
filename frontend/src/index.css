@@ -78,7 +78,8 @@ img {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding: 18px 32px;
-  background: linear-gradient(rgba(18, 12, 7, 0.92), rgba(18, 12, 7, 0));
+  background: var(--ink);
+  border-bottom: 1px solid var(--line);
 }
 
 .wordmark {
@@ -514,6 +515,23 @@ dl dd {
   word-break: break-word;
 }
 
+dl dt.stat-key,
+dl dd.stat-value {
+  border-top-color: var(--line);
+}
+
+dl dt.stat-key {
+  color: var(--cream-hi);
+  font-weight: 600;
+}
+
+dl dd.stat-value {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--amber-hi);
+}
+
 .detail-actions {
   display: flex;
   flex-wrap: wrap;
@@ -706,4 +724,35 @@ footer .wordmark {
 
 .phase-stepper li.skip {
   opacity: 0.4;
+}
+
+.copy-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.copied-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--amber-hi);
+  color: var(--ink);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 2;
+}
+
+.copied-bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--amber-hi);
 }
