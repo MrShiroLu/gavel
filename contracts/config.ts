@@ -1,6 +1,6 @@
 // Shared tunables config module (CLAUDE.md hard rule: "Tunable values
 // (window durations, minimums, limits, fees) live only in a config module,
-// never hardcoded" — also PLAN.md section 4).
+// never hardcoded" — also NOTES_Plan.md section 4).
 //
 // Placement: contracts/ is the one directory already imported across the
 // Node/browser boundary — frontend/src/midnight.ts and

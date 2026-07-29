@@ -1,4 +1,4 @@
-// Phase 0 mechanism spike: settlement-window rolling maximum (PLAN.md
+// Phase 0 mechanism spike: settlement-window rolling maximum (NOTES_Plan.md
 // section 4, Candidate 1 — the decision recorded there after this spike).
 // Deadline/clock handling is a Phase 1+ detail (block height vs. oracle
 // timestamp); this spike drives lifecycle transitions with explicit calls
@@ -21,7 +21,7 @@ export ledger sellerId: Bytes<32>;
 export ledger minBid: Uint<64>;
 export ledger bidCount: Counter;
 
-// One nullifier per wallet per auction (one active bid per wallet, PLAN.md
+// One nullifier per wallet per auction (one active bid per wallet, NOTES_Plan.md
 // section 4 bidding rules) without linking the nullifier to a wallet address.
 export ledger nullifiers: Set<Bytes<32>>;
 

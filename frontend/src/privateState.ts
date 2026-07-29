@@ -49,7 +49,7 @@ const bidStorageKey = (accountId: string, contractAddress: string) => `gavel:bid
 
 export type StoredBid = { amount: string; nonceHex: string };
 
-// Remembered so the app can auto-drive settlement (PLAN.md section 4's
+// Remembered so the app can auto-drive settlement (NOTES_Plan.md section 4's
 // anti-abuse note: bidders shouldn't have to remember their own bid).
 export const storeBid = (accountId: string, contractAddress: string, amount: bigint, nonce: Uint8Array): void => {
   localStorage.setItem(

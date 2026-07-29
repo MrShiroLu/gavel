@@ -69,3 +69,4 @@ midnight-level-db/
 # Raw source media for generated frontend assets (anim frame sequence,
 # art thumbnail) — not meant to be tracked in git
 frontend/assets/
+NOTES_*

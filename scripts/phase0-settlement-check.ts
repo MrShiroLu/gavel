@@ -1,4 +1,4 @@
-// Phase 0 acceptance check (PLAN.md phase 5, Phase 0 acceptance criteria):
+// Phase 0 acceptance check (NOTES_Plan.md phase 5, Phase 0 acceptance criteria):
 // three simulated bidders submit sealed bids against the settlement-window
 // rolling-maximum contract (contracts/phase0-spike/settlement.compact) and
 // the correct winner/price come out of settlement with losing bid amounts
@@ -47,7 +47,7 @@ assert.equal(sim.getLedger().state, 2 /* SettlementWindow */);
 const privateBidderBytes = [alice, carol].flatMap((b) => [b.secretKey, b.nonce]);
 
 // Bob settles first: he becomes the leader, so his amount IS disclosed —
-// that's the documented settlement leak (PLAN.md section 4), not a bug.
+// that's the documented settlement leak (NOTES_Plan.md section 4), not a bug.
 sim.switchTo(createBidderPrivateState(bob.secretKey));
 sim.settleBid(bob.amount, bob.nonce);
 ledger = sim.getLedger();

@@ -8,7 +8,7 @@ export const auctionStateName = (state: number): string => AUCTION_STATE_NAMES[s
 export const toHex = (bytes: Uint8Array): string => Buffer.from(bytes).toString('hex');
 
 // The winner's recorded address is a hash of their wallet address, not the
-// address itself — PLAN.md section 4 calls the on-chain winner field "an
+// address itself — NOTES_Plan.md section 4 calls the on-chain winner field "an
 // anonymous claim ticket or an address the winner chooses to use"; hashing
 // keeps it a stable, verifiable ticket without a Midnight-address-format
 // dependency in the UI layer.
