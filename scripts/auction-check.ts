@@ -59,7 +59,7 @@ assert.equal(sim.getLedger().state, 2 /* SettlementWindow */);
 sim.setTime(Number(biddingEndsAt) + 1);
 
 // Bob settles first: he becomes the leader, so his amount IS disclosed —
-// that's the documented settlement leak (PLAN.md section 4), not a bug.
+// that's the documented settlement leak (NOTES_Plan.md section 4), not a bug.
 sim.switchTo(createBidderPrivateState(bob.secretKey));
 sim.settleBid(bob.amount, bob.nonce);
 ledger = sim.getLedger();
@@ -114,6 +114,33 @@ for (const secret of [alice, carol].flatMap((b) => [b.secretKey, b.nonce])) {
 }
 
 console.log("Auction check passed: winner=bob price=300, min-increment enforced, deadlines enforced, losing amounts unrevealed.");
+
+// ── Escrow: seller withdraws proceeds, only once, only the seller ────────
+// finalizeSettlement above had bob (the winner) pay currentMaxAmount into
+// the contract via receiveUnshielded. claimProceeds lets the seller pull it
+// out to an address they choose; nobody else can, and not twice.
+{
+  const payoutAddress = { bytes: bytes32(88) };
+  assert.equal(sim.getLedger().proceedsClaimed, false, "proceeds start unclaimed");
+
+  sim.switchTo(createBidderPrivateState(bob.secretKey /* the winner, not the seller */));
+  assert.throws(
+    () => sim.claimProceeds(payoutAddress),
+    /Only the seller can claim proceeds/,
+    "a non-seller must not be able to claim the proceeds"
+  );
+
+  sim.switchTo(createBidderPrivateState(seller));
+  sim.claimProceeds(payoutAddress);
+  assert.equal(sim.getLedger().proceedsClaimed, true, "the seller can claim the proceeds once");
+
+  assert.throws(
+    () => sim.claimProceeds(payoutAddress),
+    /Proceeds already claimed/,
+    "the seller must not be able to claim the proceeds twice"
+  );
+}
+console.log("Escrow claim passed: only the seller withdraws the winning amount, exactly once.");
 
 // ── Tie handling ─────────────────────────────────────────────────────────
 // The increment rule (amount >= currentMax + minIncrement) means an equal
@@ -333,4 +360,4 @@ console.log("Zero-bid-increment rejection passed: constructor guards the tie-bre
 }
 console.log("Settlement-window-ordering rejection passed: constructor prevents the permanent-lock case.");
 
-console.log("\nAll auction acceptance scenarios passed (PLAN.md Phase 3 test list complete).");
+console.log("\nAll auction acceptance scenarios passed (NOTES_Plan.md Phase 3 test list complete).");

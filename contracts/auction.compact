@@ -2,7 +2,7 @@
 // (the frontend deploys a new instance per seller listing; there is no
 // on-chain registry of auctions here — that is an indexer/off-chain
 // concern). Mechanism is the settlement-window rolling maximum decided in
-// PLAN.md section 4, promoted from contracts/phase0-spike/settlement.compact
+// NOTES_Plan.md section 4, promoted from contracts/phase0-spike/settlement.compact
 // with deadline enforcement (blockTimeLt/blockTimeGte, confirmed available
 // in CompactStandardLibrary via docs.midnight.network) and a seller-set
 // minimum bid increment added.
@@ -27,7 +27,7 @@ export ledger biddingDeadline: Uint<64>;
 export ledger settlementDeadline: Uint<64>;
 export ledger bidCount: Counter;
 
-// One nullifier per wallet per auction (one active bid per wallet, PLAN.md
+// One nullifier per wallet per auction (one active bid per wallet, NOTES_Plan.md
 // section 4 bidding rules) without linking the nullifier to a wallet address.
 export ledger nullifiers: Set<Bytes<32>>;
 
@@ -44,6 +44,13 @@ export ledger currentLeaderId: Bytes<32>;
 export ledger settled: Set<Bytes<32>>;
 export ledger winnerAddress: Bytes<32>;
 
+// Escrow: the winning amount, paid by the winner into the contract at
+// finalizeSettlement and withdrawn by the seller at claimProceeds. The
+// amount is the native token (nativeToken()) and is already public by
+// settlement time (currentMaxAmount), so moving it adds no new leak.
+// proceedsClaimed guards against a double withdrawal by the seller.
+export ledger proceedsClaimed: Boolean;
+
 constructor(
   seller: Bytes<32>,
   bidFloor: Uint<64>,
@@ -59,7 +66,7 @@ constructor(
   // strictly positive floor guarantees no valid bid amount can ever equal
   // the sentinel. With bidFloor == 0 a second bidder settling with
   // amount == 0 would re-enter the "first bid" branch and overwrite an
-  // earlier equal leader, breaking "highest bid wins" (PLAN.md section 4).
+  // earlier equal leader, breaking "highest bid wins" (NOTES_Plan.md section 4).
   assert(bidFloor > 0, "Bid floor must be greater than zero");
   // bidIncrement > 0: settleBid's tie handling is "first bidder to reach a
   // given amount keeps leadership" (an equal amount must NOT clear
@@ -81,6 +88,7 @@ constructor(
   biddingDeadline = disclose(biddingEndsAt);
   settlementDeadline = disclose(settlementEndsAt);
   state = AuctionState.Created;
+  proceedsClaimed = false;
 }
 
 // Per-wallet secret, supplied from local private state by the TS driver.
@@ -175,13 +183,35 @@ export circuit settleBid(amount: Uint<64>, nonce: Bytes<32>): [] {
 }
 
 // Called by the current leader once no higher settlement is expected.
-// Proves ownership of the leader id, then discloses the address the leader
-// wants recorded as the public winner.
+// Proves ownership of the leader id, then pays the winning amount into the
+// contract (escrow) and records the winner. The paid amount is the native
+// token in the amount currentMaxAmount, which is already public here — the
+// winner cannot finalize without funding it, so "winner = payer" is enforced
+// on chain rather than trusted. receiveUnshielded pulls the tokens from the
+// caller's balance; the wallet supplies them when it balances the tx.
 export circuit finalizeSettlement(claimedAddress: Bytes<32>): [] {
   assert(state == AuctionState.SettlementWindow, "Not in settlement window");
   assert(blockTimeGte(settlementDeadline), "Settlement window is still open");
   const bidderId = deriveBidderId(localSecretKey());
   assert(bidderId == currentLeaderId, "Caller is not the recorded leader");
+  receiveUnshielded(nativeToken(), currentMaxAmount as Uint<128>);
   winnerAddress = disclose(claimedAddress);
   state = AuctionState.Settled;
+}
+
+// Seller withdraws the escrowed winning amount to an address they supply.
+// Ownership is the same check openBidding uses (deriveBidderId of the
+// seller's secret == sellerId); proceedsClaimed prevents a second draw.
+// The seller chooses the payout address at claim time, so no payout key has
+// to be committed at auction creation.
+export circuit claimProceeds(sellerAddress: UserAddress): [] {
+  assert(state == AuctionState.Settled, "Auction is not settled yet");
+  assert(deriveBidderId(localSecretKey()) == sellerId, "Only the seller can claim proceeds");
+  assert(!proceedsClaimed, "Proceeds already claimed");
+  proceedsClaimed = true;
+  sendUnshielded(
+    nativeToken(),
+    currentMaxAmount as Uint<128>,
+    right<ContractAddress, UserAddress>(disclose(sellerAddress))
+  );
 }

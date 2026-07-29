@@ -97,6 +97,10 @@ export class AuctionSimulator {
   finalizeSettlement(claimedAddress: Uint8Array): Ledger {
     return this.run(this.contract.impureCircuits.finalizeSettlement, claimedAddress);
   }
+
+  claimProceeds(sellerAddress: { bytes: Uint8Array }): Ledger {
+    return this.run(this.contract.impureCircuits.claimProceeds, sellerAddress);
+  }
 }
 
 export const commitmentOf = (amount: bigint, nonce: Uint8Array): Uint8Array =>
