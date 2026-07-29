@@ -1,7 +1,7 @@
 /**
  * Real on-chain acceptance check for the auction contract on Preprod, using
  * three distinct wallets (seller, alice, bob) that each pay their own gas —
- * this is PLAN.md Phase 3's "at least three distinct wallets" acceptance bar.
+ * this is NOTES_Plan.md Phase 3's "at least three distinct wallets" acceptance bar.
  * scripts/auction-onchain-check.ts already covers the same lifecycle faster
  * on the local devnet with one funded wallet and two bidder identities; this
  * script is the Preprod proof that three independent parties can run it.
@@ -412,11 +412,15 @@ async function main() {
 
   console.log('\n─── Deploying auction (seller) ─────────────────────────────────\n');
   console.log(`  bidFloor=${PREPROD_CHECK_BID_FLOOR} bidIncrement=${PREPROD_CHECK_BID_INCREMENT} biddingEndsAt=${biddingEndsAt} settlementEndsAt=${settlementEndsAt}`);
+  // openBidding checks deriveBidderId(localSecretKey()) == sellerId, so the
+  // constructor needs the derived id, not the raw secret (same bug fixed in
+  // auction-onchain-check.ts).
+  const sellerId = AuctionModule.pureCircuits.deriveBidderId(SELLER_MARKER);
   const deployed = await deployContract(providers.seller, {
     compiledContract: compiledContract as any,
     privateStateId: PRIVATE_STATE_ID,
     initialPrivateState: createBidderPrivateState(SELLER_MARKER),
-    args: [SELLER_MARKER, PREPROD_CHECK_BID_FLOOR, PREPROD_CHECK_BID_INCREMENT, biddingEndsAt, settlementEndsAt],
+    args: [sellerId, PREPROD_CHECK_BID_FLOOR, PREPROD_CHECK_BID_INCREMENT, biddingEndsAt, settlementEndsAt],
   });
   const contractAddress = deployed.deployTxData.public.contractAddress;
   console.log(`  ✅ Deployed at ${contractAddress}`);

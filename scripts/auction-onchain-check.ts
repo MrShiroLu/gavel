@@ -173,11 +173,15 @@ async function main() {
 
   console.log('\n─── Deploying auction ──────────────────────────────────────────\n');
   console.log(`  bidFloor=${ONCHAIN_CHECK_BID_FLOOR} bidIncrement=${ONCHAIN_CHECK_BID_INCREMENT} biddingEndsAt=${biddingEndsAt} settlementEndsAt=${settlementEndsAt}`);
+  // openBidding checks deriveBidderId(localSecretKey()) == sellerId, so the
+  // constructor needs the derived id, not the raw secret — passing the raw
+  // secret here made every openBidding call fail (this was the CI break).
+  const sellerId = AuctionModule.pureCircuits.deriveBidderId(seller);
   const deployed = await deployContract(providers, {
     compiledContract: compiledContract as any,
     privateStateId: PRIVATE_STATE_ID,
     initialPrivateState: createBidderPrivateState(seller),
-    args: [seller, ONCHAIN_CHECK_BID_FLOOR, ONCHAIN_CHECK_BID_INCREMENT, biddingEndsAt, settlementEndsAt],
+    args: [sellerId, ONCHAIN_CHECK_BID_FLOOR, ONCHAIN_CHECK_BID_INCREMENT, biddingEndsAt, settlementEndsAt],
   });
   const contractAddress = deployed.deployTxData.public.contractAddress;
   console.log(`  ✅ Deployed at ${contractAddress}`);
