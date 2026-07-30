@@ -5,6 +5,7 @@
 ![CI](https://github.com/MrShiroLu/gavel/actions/workflows/ci.yml/badge.svg)
 
 **Live demo:** [gavel-sand.vercel.app](https://gavel-sand.vercel.app)
+Still needs a local proof server (`docker compose up -d proof-server`) and Lace on Preprod, even though the frontend is hosted.
 
 Sealed-bid auctions on the Midnight Network. Bids are private commitments.
 Losing bid amounts are never published, not at close, not to the platform,
