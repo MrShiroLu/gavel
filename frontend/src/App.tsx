@@ -44,8 +44,8 @@ function App() {
       <header className="site-header">
         <a className="wordmark" href="/" onClick={go('/')}>Gavel</a>
         <nav>
-          <a href="/" onClick={go('/', '#story')}>Story</a>
-          <a href="/app" onClick={go('/app')}>App</a>
+          <a href="/" aria-current={page === 'landing' ? 'page' : undefined} onClick={go('/', '#story')}>Story</a>
+          <a href="/app" aria-current={page === 'app' ? 'page' : undefined} onClick={go('/app')}>App</a>
         </nav>
         <div className="wallet-slot">
           {wallet.status === 'connected' && wallet.address ? (

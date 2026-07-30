@@ -80,6 +80,7 @@ img {
   padding: 18px 32px;
   background: var(--ink);
   border-bottom: 1px solid var(--line);
+  box-shadow: 0 12px 28px -18px rgba(0, 0, 0, 0.65);
 }
 
 .wordmark {
@@ -108,6 +109,10 @@ img {
   color: var(--cream-hi);
 }
 
+.site-header nav a[aria-current='page'] {
+  color: var(--amber-hi);
+}
+
 .wallet-slot {
   justify-self: end;
   display: flex;
@@ -119,10 +124,11 @@ img {
 .wallet-slot .address {
   font-family: var(--mono);
   font-size: 13px;
-  color: var(--muted);
+  color: var(--cream);
+  background: var(--line-soft);
   border: 1px solid var(--line-soft);
   padding: 7px 12px;
-  border-radius: 2px;
+  border-radius: 999px;
 }
 
 .wallet-error {
@@ -530,6 +536,7 @@ dl dd.stat-value {
   font-size: 26px;
   font-weight: 700;
   color: var(--amber-hi);
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .detail-actions {
@@ -540,7 +547,8 @@ dl dd.stat-value {
   margin-top: 24px;
 }
 
-.detail-actions form {
+.detail-actions form,
+.detail-actions .notice {
   flex-basis: 100%;
 }
 
