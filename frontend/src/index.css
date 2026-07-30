@@ -532,8 +532,7 @@ dl dt.stat-key {
 }
 
 dl dd.stat-value {
-  font-family: var(--serif);
-  font-size: 26px;
+  font-family: var(--sans);
   font-weight: 700;
   color: var(--amber-hi);
   font-variant-numeric: lining-nums tabular-nums;

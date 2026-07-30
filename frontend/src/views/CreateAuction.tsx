@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTLEMENT_MINUTES,
 } from '../../../contracts/config.js';
 import { addAuction } from '../auctionRegistry';
+import { parseNightAmount } from '../auctionState';
 
 type Wallet = ReturnType<typeof useWallet>;
 
@@ -41,7 +42,7 @@ export function CreateAuction({ wallet, onCreated }: { wallet: Wallet; onCreated
       const sellerPrivateState = createBidderPrivateState(sellerSecret);
       const deployed = await deployAuction(providers, sellerPrivateState, {
         seller: sellerId,
-        bidFloor: BigInt(minBid),
+        bidFloor: parseNightAmount(minBid),
         biddingEndsAt,
         settlementEndsAt
       });
@@ -79,8 +80,8 @@ export function CreateAuction({ wallet, onCreated }: { wallet: Wallet; onCreated
         <input value={item} onChange={(e) => setItem(e.target.value)} required />
       </label>
       <label>
-        Minimum bid
-        <input type="number" min="1" value={minBid} onChange={(e) => setMinBid(e.target.value)} required />
+        Minimum bid (tNIGHT)
+        <input type="number" min="0.000001" step="0.000001" value={minBid} onChange={(e) => setMinBid(e.target.value)} required />
       </label>
       <label>
         Bidding window (minutes)

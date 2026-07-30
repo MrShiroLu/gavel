@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { useWallet } from '../wallet';
 import { configureProviders, createBrowserWalletProvider, getUnshieldedUserAddress, joinAuctionContract, readAuctionState, pureCircuits, type AuctionLedger } from '../midnight';
 import { getOrCreateBidderPrivateState, storeBid, getStoredBid, peekBidderSecret } from '../privateState';
-import { auctionStateName, toHex, addressToClaimTicket } from '../auctionState';
+import { auctionStateName, toHex, addressToClaimTicket, parseNightAmount, formatNightAmount } from '../auctionState';
 
 type Wallet = ReturnType<typeof useWallet>;
 
@@ -151,7 +151,7 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
   const submitBid = () =>
     run(async (contract, account) => {
       const nonce = crypto.getRandomValues(new Uint8Array(32));
-      const amount = BigInt(bidAmount);
+      const amount = parseNightAmount(bidAmount);
       const commitment = pureCircuits.computeCommitment(amount, nonce);
       await contract.callTx.submitBid(commitment);
       storeBid(account, address, amount, nonce);
@@ -254,7 +254,7 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
         <dt>Bids received</dt>
         <dd>{ledger.bidCount.toString()}</dd>
         <dt>Minimum bid</dt>
-        <dd>{ledger.minBid.toString()}</dd>
+        <dd>{formatNightAmount(ledger.minBid)} tNIGHT</dd>
         <dt>Bidding deadline</dt>
         <dd>{new Date(Number(ledger.biddingDeadline) * 1000).toLocaleString()}</dd>
         <dt>Settlement deadline</dt>
@@ -262,13 +262,13 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
         {myStoredBid && (
           <>
             <dt className="stat-key">Your bid</dt>
-            <dd className="stat-value">{myStoredBid.amount.toString()}</dd>
+            <dd className="stat-value">{formatNightAmount(myStoredBid.amount)} tNIGHT</dd>
           </>
         )}
         {(ledger.state === 2 || ledger.state === 3) && (
           <>
             <dt className="stat-key">{ledger.state === 3 ? 'Winning bid' : 'Highest revealed bid'}</dt>
-            <dd className="stat-value">{ledger.currentMaxAmount.toString()}</dd>
+            <dd className="stat-value">{formatNightAmount(ledger.currentMaxAmount)} tNIGHT</dd>
           </>
         )}
         {ledger.state === 3 && (
@@ -301,8 +301,8 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
           }}
         >
           <label>
-            Your sealed bid
-            <input type="number" min={ledger.minBid.toString()} value={bidAmount} onChange={(e) => setBidAmount(e.target.value)} required />
+            Your sealed bid (tNIGHT)
+            <input type="number" min={formatNightAmount(ledger.minBid)} step="0.000001" value={bidAmount} onChange={(e) => setBidAmount(e.target.value)} required />
           </label>
           <button type="submit" disabled={disabled}>Submit sealed bid</button>
         </form>
@@ -342,7 +342,7 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
 
       {stateName === 'Settled' && isSeller && !ledger.proceedsClaimed && (
         <button type="button" disabled={disabled} onClick={() => void claimProceeds()}>
-          Withdraw proceeds ({ledger.currentMaxAmount.toString()})
+          Withdraw proceeds ({formatNightAmount(ledger.currentMaxAmount)} tNIGHT)
         </button>
       )}
 
