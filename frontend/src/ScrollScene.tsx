@@ -23,8 +23,6 @@ const TRACK = [
   { p: 1.0, x: 0.5, y: 0.5, z: 1.0 }, // full tableau again
 ];
 
-const IMPACT_P = 0.72;
-
 const CAPTIONS = [
   {
     from: 0.03,
@@ -156,12 +154,6 @@ export function ScrollScene() {
       const sx = Math.min(Math.max(cam.x * iw - sw / 2, 0), iw - sw);
       const sy = Math.min(Math.max(cam.y * ih - sh / 2, 0), ih - sh);
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
-
-      const flash = Math.max(0, 1 - Math.abs(p - IMPACT_P) / 0.03);
-      if (flash > 0) {
-        ctx.fillStyle = `rgba(230, 184, 119, ${(flash * 0.22).toFixed(3)})`;
-        ctx.fillRect(0, 0, cw, ch);
-      }
 
       CAPTIONS.forEach((c, i) => {
         const el = capRefs.current[i];
