@@ -7,6 +7,10 @@
 **Live demo:** [gavel-sand.vercel.app](https://gavel-sand.vercel.app)
 Still needs a local proof server (`docker compose up -d proof-server`) and Lace on Preprod, even though the frontend is hosted.
 
+**Verifiable Preprod deployment:** a full auction lifecycle (bid, settle,
+finalize, claim) has been run end to end against Preprod on contract address
+`f2fa248a5e3a8c4292f58f70ca06255babdf5a8f127770fba8cb988d3cfaac97`.
+
 **MVP video:** [youtu.be/zulOR9eRebI](https://youtu.be/zulOR9eRebI)
 
 **Twitter:** [x.com/gavelbids](https://x.com/gavelbids)
