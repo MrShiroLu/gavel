@@ -22,7 +22,6 @@ export class AuctionSimulator {
     callerState: BidderPrivateState,
     seller: Uint8Array,
     bidFloor: bigint,
-    bidIncrement: bigint,
     biddingEndsAt: bigint,
     settlementEndsAt: bigint,
     startTime: number
@@ -33,7 +32,6 @@ export class AuctionSimulator {
         createConstructorContext(callerState, "0".repeat(64)),
         seller,
         bidFloor,
-        bidIncrement,
         biddingEndsAt,
         settlementEndsAt
       );

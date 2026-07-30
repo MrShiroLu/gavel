@@ -60,7 +60,6 @@ import { createWallet, persistWalletState, unshieldedToken, type WalletContext }
 import { createBidderPrivateState, witnesses, type BidderPrivateState } from '../contracts/witnesses.js';
 import {
   PREPROD_CHECK_BID_FLOOR,
-  PREPROD_CHECK_BID_INCREMENT,
   PREPROD_CHECK_ALICE_BID_AMOUNT,
   PREPROD_CHECK_BOB_BID_AMOUNT,
   PREPROD_CHECK_BIDDING_WINDOW_SECONDS,
@@ -411,7 +410,7 @@ async function main() {
   const settlementEndsAt = biddingEndsAt + PREPROD_CHECK_SETTLEMENT_WINDOW_SECONDS;
 
   console.log('\n─── Deploying auction (seller) ─────────────────────────────────\n');
-  console.log(`  bidFloor=${PREPROD_CHECK_BID_FLOOR} bidIncrement=${PREPROD_CHECK_BID_INCREMENT} biddingEndsAt=${biddingEndsAt} settlementEndsAt=${settlementEndsAt}`);
+  console.log(`  bidFloor=${PREPROD_CHECK_BID_FLOOR} biddingEndsAt=${biddingEndsAt} settlementEndsAt=${settlementEndsAt}`);
   // openBidding checks deriveBidderId(localSecretKey()) == sellerId, so the
   // constructor needs the derived id, not the raw secret (same bug fixed in
   // auction-onchain-check.ts).
@@ -420,7 +419,7 @@ async function main() {
     compiledContract: compiledContract as any,
     privateStateId: PRIVATE_STATE_ID,
     initialPrivateState: createBidderPrivateState(SELLER_MARKER),
-    args: [sellerId, PREPROD_CHECK_BID_FLOOR, PREPROD_CHECK_BID_INCREMENT, biddingEndsAt, settlementEndsAt],
+    args: [sellerId, PREPROD_CHECK_BID_FLOOR, biddingEndsAt, settlementEndsAt],
   });
   const contractAddress = deployed.deployTxData.public.contractAddress;
   console.log(`  ✅ Deployed at ${contractAddress}`);

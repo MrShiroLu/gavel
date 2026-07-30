@@ -5,7 +5,6 @@ import { createBidderPrivateState } from '../../../contracts/witnesses.js';
 import { storeBidderPrivateState } from '../privateState';
 import {
   DEFAULT_MIN_BID,
-  DEFAULT_MIN_INCREMENT,
   DEFAULT_BIDDING_MINUTES,
   DEFAULT_SETTLEMENT_MINUTES,
 } from '../../../contracts/config.js';
@@ -16,7 +15,6 @@ type Wallet = ReturnType<typeof useWallet>;
 export function CreateAuction({ wallet, onCreated }: { wallet: Wallet; onCreated: (address: string) => void }) {
   const [item, setItem] = useState('');
   const [minBid, setMinBid] = useState(DEFAULT_MIN_BID.toString());
-  const [minIncrement, setMinIncrement] = useState(DEFAULT_MIN_INCREMENT.toString());
   const [biddingMinutes, setBiddingMinutes] = useState(DEFAULT_BIDDING_MINUTES.toString());
   const [settlementMinutes, setSettlementMinutes] = useState(DEFAULT_SETTLEMENT_MINUTES.toString());
   const [status, setStatus] = useState<'idle' | 'submitting' | 'done' | 'error'>('idle');
@@ -44,7 +42,6 @@ export function CreateAuction({ wallet, onCreated }: { wallet: Wallet; onCreated
       const deployed = await deployAuction(providers, sellerPrivateState, {
         seller: sellerId,
         bidFloor: BigInt(minBid),
-        bidIncrement: BigInt(minIncrement),
         biddingEndsAt,
         settlementEndsAt
       });
@@ -84,10 +81,6 @@ export function CreateAuction({ wallet, onCreated }: { wallet: Wallet; onCreated
       <label>
         Minimum bid
         <input type="number" min="1" value={minBid} onChange={(e) => setMinBid(e.target.value)} required />
-      </label>
-      <label>
-        Minimum increment
-        <input type="number" min="1" value={minIncrement} onChange={(e) => setMinIncrement(e.target.value)} required />
       </label>
       <label>
         Bidding window (minutes)

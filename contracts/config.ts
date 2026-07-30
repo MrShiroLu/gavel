@@ -28,7 +28,6 @@
 // --- Frontend: seller-facing defaults for the create-auction form ---
 // (seller can still override every one of these before submitting).
 export const DEFAULT_MIN_BID = 50n;
-export const DEFAULT_MIN_INCREMENT = 10n;
 export const DEFAULT_BIDDING_MINUTES = 60;
 export const DEFAULT_SETTLEMENT_MINUTES = 30;
 
@@ -43,7 +42,6 @@ export const DEFAULT_PREPROD_INDEXER_WS_URL = 'wss://indexer.preprod.midnight.ne
 //
 // Auction parameters for the scripted deploy:
 export const ONCHAIN_CHECK_BID_FLOOR = 50n;
-export const ONCHAIN_CHECK_BID_INCREMENT = 20n;
 //
 // Bid amounts for the two simulated bidders (alice loses, bob wins) —
 // these are scenario data, not identities, so unlike the secret
@@ -76,7 +74,6 @@ export const ONCHAIN_CHECK_DEADLINE_MARGIN_MS = 2_000;
 // over a real public network (real block times, real network latency on
 // top of real proof generation), so windows are padded further still.
 export const PREPROD_CHECK_BID_FLOOR = 50n;
-export const PREPROD_CHECK_BID_INCREMENT = 20n;
 export const PREPROD_CHECK_ALICE_BID_AMOUNT = 100n;
 export const PREPROD_CHECK_BOB_BID_AMOUNT = 300n;
 //

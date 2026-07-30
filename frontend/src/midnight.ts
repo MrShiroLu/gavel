@@ -143,7 +143,6 @@ export const configureProviders = async (connectedApi: ConnectedAPI): Promise<Au
 export type AuctionConstructorArgs = {
   seller: Uint8Array;
   bidFloor: bigint;
-  bidIncrement: bigint;
   biddingEndsAt: bigint;
   settlementEndsAt: bigint;
 };
@@ -157,7 +156,7 @@ export const deployAuction = async (
     compiledContract: auctionCompiledContract,
     privateStateId: AuctionPrivateStateId,
     initialPrivateState: privateState,
-    args: [args.seller, args.bidFloor, args.bidIncrement, args.biddingEndsAt, args.settlementEndsAt]
+    args: [args.seller, args.bidFloor, args.biddingEndsAt, args.settlementEndsAt]
   });
 
 // Always passes initialPrivateState: the bidder's secret lives in

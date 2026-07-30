@@ -1,10 +1,10 @@
 // Acceptance check for the production auction contract
 // (contracts/auction.compact): three bidders run the full lifecycle with
-// real deadlines enforced via blockTimeLt/blockTimeGte, the minimum
-// increment rule is exercised, and losing bid amounts never appear in any
-// circuit's public transcript or in ledger state. Plain node:assert script,
-// matching scripts/phase0-settlement-check.ts's pattern (no test runner
-// installed, none of this needs one).
+// real deadlines enforced via blockTimeLt/blockTimeGte, tie handling is
+// exercised, and losing bid amounts never appear in any circuit's public
+// transcript or in ledger state. Plain node:assert script, matching
+// scripts/phase0-settlement-check.ts's pattern (no test runner installed,
+// none of this needs one).
 import assert from "node:assert/strict";
 import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import {
@@ -36,7 +36,6 @@ const sim = new AuctionSimulator(
   createBidderPrivateState(seller),
   sellerId,
   50n /* bidFloor */,
-  20n /* bidIncrement */,
   biddingEndsAt,
   settlementEndsAt,
   0
@@ -69,8 +68,8 @@ assert.equal(
   Buffer.from(bidderIdOf(bob.secretKey)).toString("hex")
 );
 
-// Carol's bid (110) clears the floor but not bob's 300 + the 20 increment
-// (320): the min-increment rule must keep bob as leader.
+// Carol's bid (110) clears the floor but is still below bob's 300: the
+// strictly-greater comparison must keep bob as leader.
 for (const bidder of [alice, carol]) {
   sim.switchTo(createBidderPrivateState(bidder.secretKey));
   sim.settleBid(bidder.amount, bidder.nonce);
@@ -113,7 +112,7 @@ for (const secret of [alice, carol].flatMap((b) => [b.secretKey, b.nonce])) {
   assert.equal(containsBytes(flatten(ledger), secret), false, "no losing-bidder secret may leak into ledger state");
 }
 
-console.log("Auction check passed: winner=bob price=300, min-increment enforced, deadlines enforced, losing amounts unrevealed.");
+console.log("Auction check passed: winner=bob price=300, deadlines enforced, losing amounts unrevealed.");
 
 // ── Escrow: seller withdraws proceeds, only once, only the seller ────────
 // finalizeSettlement above had bob (the winner) pay currentMaxAmount into
@@ -143,12 +142,12 @@ console.log("Auction check passed: winner=bob price=300, min-increment enforced,
 console.log("Escrow claim passed: only the seller withdraws the winning amount, exactly once.");
 
 // ── Tie handling ─────────────────────────────────────────────────────────
-// The increment rule (amount >= currentMax + minIncrement) means an equal
+// The strictly-greater comparison (amount > currentMaxAmount) means an equal
 // settle amount can never unseat the current leader — first to reach a given
 // amount keeps it.
 {
   const tieSim = new AuctionSimulator(
-    createBidderPrivateState(seller), sellerId, 50n, 20n, biddingEndsAt, settlementEndsAt, 0
+    createBidderPrivateState(seller), sellerId, 50n, biddingEndsAt, settlementEndsAt, 0
   );
   const first = { secretKey: bytes32(40), amount: 200n, nonce: bytes32(41) };
   const second = { secretKey: bytes32(50), amount: 200n, nonce: bytes32(51) };
@@ -193,7 +192,7 @@ console.log("Tie handling passed: earlier settle keeps leadership, later equal s
 // ── Bidder who never settles ────────────────────────────────────────────
 {
   const ghostSim = new AuctionSimulator(
-    createBidderPrivateState(seller), sellerId, 50n, 20n, biddingEndsAt, settlementEndsAt, 0
+    createBidderPrivateState(seller), sellerId, 50n, biddingEndsAt, settlementEndsAt, 0
   );
   const ghost = { secretKey: bytes32(60), amount: 90n, nonce: bytes32(61) };
   const winner = { secretKey: bytes32(70), amount: 150n, nonce: bytes32(71) };
@@ -222,7 +221,7 @@ console.log("Never-settles bidder passed: auction still finalizes around them.")
 // ── Re-bid attempt: same wallet, second active bid ──────────────────────
 {
   const rebidSim = new AuctionSimulator(
-    createBidderPrivateState(seller), sellerId, 50n, 20n, biddingEndsAt, settlementEndsAt, 0
+    createBidderPrivateState(seller), sellerId, 50n, biddingEndsAt, settlementEndsAt, 0
   );
   rebidSim.openBidding();
   rebidSim.switchTo(createBidderPrivateState(bytes32(80)));
@@ -240,7 +239,7 @@ console.log("Re-bid rejection passed: nullifier blocks a second bid from the sam
 // the wallet whose deriveBidderId matches the stored sellerId can.
 {
   const authSim = new AuctionSimulator(
-    createBidderPrivateState(seller), sellerId, 50n, 20n, biddingEndsAt, settlementEndsAt, 0
+    createBidderPrivateState(seller), sellerId, 50n, biddingEndsAt, settlementEndsAt, 0
   );
   authSim.switchTo(createBidderPrivateState(bytes32(77) /* not the seller */));
   assert.throws(
@@ -257,7 +256,7 @@ console.log("Seller-only openBidding passed: only the seller starts the auction.
 // ── Seller cannot bid (shill guard) ─────────────────────────────────────
 {
   const shillSim = new AuctionSimulator(
-    createBidderPrivateState(seller), sellerId, 50n, 20n, biddingEndsAt, settlementEndsAt, 0
+    createBidderPrivateState(seller), sellerId, 50n, biddingEndsAt, settlementEndsAt, 0
   );
   shillSim.openBidding();
   shillSim.switchTo(createBidderPrivateState(seller));
@@ -272,7 +271,7 @@ console.log("Shill-bid rejection passed: the seller cannot bid on their own auct
 // ── Bid submitted after the bidding deadline ────────────────────────────
 {
   const lateSim = new AuctionSimulator(
-    createBidderPrivateState(seller), sellerId, 50n, 20n, biddingEndsAt, settlementEndsAt, 0
+    createBidderPrivateState(seller), sellerId, 50n, biddingEndsAt, settlementEndsAt, 0
   );
   lateSim.openBidding();
   lateSim.setTime(Number(biddingEndsAt));
@@ -288,7 +287,7 @@ console.log("Late-bid rejection passed: deadline is enforced in-circuit.");
 // ── Zero-bid cancellation ────────────────────────────────────────────────
 {
   const cancelSim = new AuctionSimulator(
-    createBidderPrivateState(seller), sellerId, 50n, 20n, biddingEndsAt, settlementEndsAt, 0
+    createBidderPrivateState(seller), sellerId, 50n, biddingEndsAt, settlementEndsAt, 0
   );
   cancelSim.openBidding();
   cancelSim.setTime(Number(biddingEndsAt));
@@ -310,29 +309,13 @@ console.log("Zero-bid cancellation passed.");
   assert.throws(
     () =>
       new AuctionSimulator(
-        createBidderPrivateState(seller), sellerId, 0n /* bidFloor */, 20n, biddingEndsAt, settlementEndsAt, 0
+        createBidderPrivateState(seller), sellerId, 0n /* bidFloor */, biddingEndsAt, settlementEndsAt, 0
       ),
     /Bid floor must be greater than zero/,
     "a zero bid floor must be rejected at construction"
   );
 }
 console.log("Zero-bid-floor rejection passed: constructor guards the currentMaxAmount sentinel.");
-
-// ── Constructor validation: zero bid increment ──────────────────────────
-// A zero increment would let a later equal settle displace an earlier
-// equal leader, contradicting the documented tie-break invariant (see the
-// tie-handling scenario above: first to reach an amount keeps it).
-{
-  assert.throws(
-    () =>
-      new AuctionSimulator(
-        createBidderPrivateState(seller), sellerId, 50n, 0n /* bidIncrement */, biddingEndsAt, settlementEndsAt, 0
-      ),
-    /Bid increment must be greater than zero/,
-    "a zero bid increment must be rejected at construction"
-  );
-}
-console.log("Zero-bid-increment rejection passed: constructor guards the tie-break invariant.");
 
 // ── Constructor validation: settlement deadline not after bidding deadline ──
 // Otherwise closeBidding can move the auction into SettlementWindow while
@@ -342,7 +325,7 @@ console.log("Zero-bid-increment rejection passed: constructor guards the tie-bre
   assert.throws(
     () =>
       new AuctionSimulator(
-        createBidderPrivateState(seller), sellerId, 50n, 20n,
+        createBidderPrivateState(seller), sellerId, 50n,
         1_000n /* biddingEndsAt */, 1_000n /* settlementEndsAt, equal */, 0
       ),
     /Settlement deadline must be after the bidding deadline/,
@@ -351,7 +334,7 @@ console.log("Zero-bid-increment rejection passed: constructor guards the tie-bre
   assert.throws(
     () =>
       new AuctionSimulator(
-        createBidderPrivateState(seller), sellerId, 50n, 20n,
+        createBidderPrivateState(seller), sellerId, 50n,
         1_000n /* biddingEndsAt */, 500n /* settlementEndsAt, before it */, 0
       ),
     /Settlement deadline must be after the bidding deadline/,

@@ -6,8 +6,27 @@ import { auctionStateName, toHex, addressToClaimTicket } from '../auctionState';
 
 type Wallet = ReturnType<typeof useWallet>;
 
+// midnight-js wraps submit/execute failures in "Unexpected error
+// (executing|submitting) scoped transaction '...': <String(err)>" via
+// `new Error(msg, { cause: err })" — when the inner err is itself a bare
+// Error with no message, String(err) is just "Error" and the real reason
+// (e.g. the wallet's actual rejection reason) only lives in .cause. Walk the
+// chain so matching/display sees the innermost message, not the wrapper.
+const collectMessages = (err: unknown): string[] => {
+  const messages: string[] = [];
+  let current: unknown = err;
+  while (current instanceof Error) {
+    if (current.message) messages.push(current.message);
+    current = current.cause;
+  }
+  if (messages.length === 0) messages.push(String(err));
+  return messages;
+};
+
 // Turn raw contract asserts into something a person can act on.
-const friendlyError = (raw: string): string => {
+const friendlyError = (err: unknown): string => {
+  const messages = collectMessages(err);
+  const raw = messages.join(' | ');
   if (raw.includes('already has an active bid'))
     return 'This wallet has already placed a sealed bid on this auction. Each wallet may bid once.';
   if (raw.includes('Only the seller can open bidding'))
@@ -26,7 +45,9 @@ const friendlyError = (raw: string): string => {
   if (raw.includes('Seller cannot bid on their own auction')) return 'The seller cannot bid on their own auction.';
   if (raw.includes('Failed to fetch') || raw.includes('ERR_CONNECTION_REFUSED'))
     return 'Cannot reach the proof server (127.0.0.1:6300). Start it with "docker compose up -d proof-server" and try again.';
-  return raw;
+  // No known pattern matched — show the innermost (most specific) message
+  // instead of the outer "...': Error" wrapper, which is usually empty.
+  return messages[messages.length - 1];
 };
 
 // mm:ss remaining until a wall-clock deadline (both in seconds).
@@ -120,7 +141,8 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
       await refresh();
       if (successNotice) setNotice(successNotice);
     } catch (err) {
-      setError(friendlyError(err instanceof Error ? err.message : String(err)));
+      console.error(err);
+      setError(friendlyError(err));
     } finally {
       setBusy(false);
     }
@@ -233,8 +255,6 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
         <dd>{ledger.bidCount.toString()}</dd>
         <dt>Minimum bid</dt>
         <dd>{ledger.minBid.toString()}</dd>
-        <dt>Minimum increment</dt>
-        <dd>{ledger.minIncrement.toString()}</dd>
         <dt>Bidding deadline</dt>
         <dd>{new Date(Number(ledger.biddingDeadline) * 1000).toLocaleString()}</dd>
         <dt>Settlement deadline</dt>
@@ -306,8 +326,12 @@ export function AuctionDetail({ wallet, address }: { wallet: Wallet; address: st
         </button>
       )}
 
-      {stateName === 'SettlementWindow' && !isSeller && alreadySettled && !isWinner && (
+      {stateName === 'SettlementWindow' && !isSeller && alreadySettled && !isWinner && !settlementDeadlinePassed && (
         <p className="notice">Your bid was revealed. Waiting to see if it holds as the highest.</p>
+      )}
+
+      {stateName === 'SettlementWindow' && !isSeller && alreadySettled && !isWinner && settlementDeadlinePassed && (
+        <p className="notice">Your bid was revealed but did not win. The winner still needs to finalize and pay into escrow.</p>
       )}
 
       {stateName === 'SettlementWindow' && settlementDeadlinePassed && isWinner && (

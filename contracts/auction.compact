@@ -4,8 +4,7 @@
 // concern). Mechanism is the settlement-window rolling maximum decided in
 // NOTES_Plan.md section 4, promoted from contracts/phase0-spike/settlement.compact
 // with deadline enforcement (blockTimeLt/blockTimeGte, confirmed available
-// in CompactStandardLibrary via docs.midnight.network) and a seller-set
-// minimum bid increment added.
+// in CompactStandardLibrary via docs.midnight.network).
 
 pragma language_version >= 0.23;
 
@@ -22,7 +21,6 @@ export enum AuctionState {
 export ledger state: AuctionState;
 export ledger sellerId: Bytes<32>;
 export ledger minBid: Uint<64>;
-export ledger minIncrement: Uint<64>;
 export ledger biddingDeadline: Uint<64>;
 export ledger settlementDeadline: Uint<64>;
 export ledger bidCount: Counter;
@@ -54,7 +52,6 @@ export ledger proceedsClaimed: Boolean;
 constructor(
   seller: Bytes<32>,
   bidFloor: Uint<64>,
-  bidIncrement: Uint<64>,
   biddingEndsAt: Uint<64>,
   settlementEndsAt: Uint<64>
 ) {
@@ -68,12 +65,6 @@ constructor(
   // amount == 0 would re-enter the "first bid" branch and overwrite an
   // earlier equal leader, breaking "highest bid wins" (NOTES_Plan.md section 4).
   assert(bidFloor > 0, "Bid floor must be greater than zero");
-  // bidIncrement > 0: settleBid's tie handling is "first bidder to reach a
-  // given amount keeps leadership" (an equal amount must NOT clear
-  // currentMaxAmount + minIncrement). A zero increment would let a later
-  // equal settle displace an earlier equal leader, contradicting that
-  // invariant (see the tie-handling scenario in scripts/auction-check.ts).
-  assert(bidIncrement > 0, "Bid increment must be greater than zero");
   // settlementEndsAt > biddingEndsAt: otherwise closeBidding can move the
   // auction into SettlementWindow while settleBid's
   // blockTimeLt(settlementDeadline) is already false, so nobody can ever
@@ -84,7 +75,6 @@ constructor(
 
   sellerId = disclose(seller);
   minBid = disclose(bidFloor);
-  minIncrement = disclose(bidIncrement);
   biddingDeadline = disclose(biddingEndsAt);
   settlementDeadline = disclose(settlementEndsAt);
   state = AuctionState.Created;
@@ -172,10 +162,18 @@ export circuit settleBid(amount: Uint<64>, nonce: Bytes<32>): [] {
   // The comparison result itself must be disclosed before it can gate a
   // ledger write — otherwise the write's occurrence would leak the boolean
   // outcome of a witness-value comparison without an explicit disclosure.
+  //
+  // Strictly-greater-than: bids are sealed and reveal order is arbitrary, so
+  // there is no "current high" a bidder could have incremented over at
+  // submit time. A plain `>` also keeps the winner order-independent — an
+  // earlier `>= currentMax + minIncrement` version let a strictly higher
+  // later reveal lose to a lower earlier one whenever the gap was smaller
+  // than the increment. Ties keep the earlier leader (first to reach a given
+  // amount keeps leadership), same as before.
   const isFirstBid = currentMaxAmount == 0;
   const clearsFloor = isFirstBid && amount >= minBid;
-  const clearsIncrement = !isFirstBid && amount >= currentMaxAmount + minIncrement;
-  const isNewMax = disclose(clearsFloor || clearsIncrement);
+  const isNewHigh = !isFirstBid && amount > currentMaxAmount;
+  const isNewMax = disclose(clearsFloor || isNewHigh);
   if (isNewMax) {
     currentMaxAmount = disclose(amount);
     currentLeaderId = disclose(bidderId);

@@ -32,7 +32,6 @@ import { createWallet, persistWalletState, unshieldedToken } from '../src/wallet
 import { createBidderPrivateState, witnesses, type BidderPrivateState } from '../contracts/witnesses.js';
 import {
   ONCHAIN_CHECK_BID_FLOOR,
-  ONCHAIN_CHECK_BID_INCREMENT,
   ONCHAIN_CHECK_ALICE_BID_AMOUNT,
   ONCHAIN_CHECK_BOB_BID_AMOUNT,
   ONCHAIN_CHECK_BIDDING_WINDOW_SECONDS,
@@ -172,7 +171,7 @@ async function main() {
   const settlementEndsAt = biddingEndsAt + ONCHAIN_CHECK_SETTLEMENT_WINDOW_SECONDS;
 
   console.log('\n─── Deploying auction ──────────────────────────────────────────\n');
-  console.log(`  bidFloor=${ONCHAIN_CHECK_BID_FLOOR} bidIncrement=${ONCHAIN_CHECK_BID_INCREMENT} biddingEndsAt=${biddingEndsAt} settlementEndsAt=${settlementEndsAt}`);
+  console.log(`  bidFloor=${ONCHAIN_CHECK_BID_FLOOR} biddingEndsAt=${biddingEndsAt} settlementEndsAt=${settlementEndsAt}`);
   // openBidding checks deriveBidderId(localSecretKey()) == sellerId, so the
   // constructor needs the derived id, not the raw secret — passing the raw
   // secret here made every openBidding call fail (this was the CI break).
@@ -181,7 +180,7 @@ async function main() {
     compiledContract: compiledContract as any,
     privateStateId: PRIVATE_STATE_ID,
     initialPrivateState: createBidderPrivateState(seller),
-    args: [sellerId, ONCHAIN_CHECK_BID_FLOOR, ONCHAIN_CHECK_BID_INCREMENT, biddingEndsAt, settlementEndsAt],
+    args: [sellerId, ONCHAIN_CHECK_BID_FLOOR, biddingEndsAt, settlementEndsAt],
   });
   const contractAddress = deployed.deployTxData.public.contractAddress;
   console.log(`  ✅ Deployed at ${contractAddress}`);
