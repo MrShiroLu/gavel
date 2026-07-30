@@ -4,6 +4,8 @@
 
 ![CI](https://github.com/MrShiroLu/gavel/actions/workflows/ci.yml/badge.svg)
 
+**Live demo:** [gavel-sand.vercel.app](https://gavel-sand.vercel.app)
+
 Sealed-bid auctions on the Midnight Network. Bids are private commitments.
 Losing bid amounts are never published, not at close, not to the platform,
 not to anyone. The winner and the clearing price are settled on-chain and
