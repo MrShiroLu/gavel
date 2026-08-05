@@ -307,12 +307,22 @@ async function main() {
         if (errCause && errCause !== errMsg) console.error(`  Cause: ${errCause}`);
       }
 
-      if (
+      // A proof-server connection error here is a transient startup race, not
+      // "docker compose isn't running" — waitForProofServer() already confirmed
+      // the server was reachable moments earlier. Retry like DUST shortage
+      // instead of failing the whole run on one dropped connection.
+      const isProofServerHiccup =
         !isDustShortage &&
         (fullError.includes('Failed to connect to Proof Server') ||
-          fullError.includes('connect ECONNREFUSED 127.0.0.1:6300'))
-      ) {
-        console.log('  ❌ Proof server unreachable. Run: docker compose up -d\n');
+          fullError.includes('connect ECONNREFUSED 127.0.0.1:6300'));
+
+      if (isProofServerHiccup) {
+        if (attempt < MAX_RETRIES) {
+          console.log(`  ⏳ Proof server hiccup, retrying in ${RETRY_DELAY_MS / 1000}s...`);
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+        console.log(`  ❌ Proof server still unreachable after ${MAX_RETRIES} retries. Run: docker compose up -d\n`);
         await walletCtx.wallet.stop();
         process.exit(1);
       }
