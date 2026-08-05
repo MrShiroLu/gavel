@@ -15,6 +15,22 @@ finalize, claim) has been run end to end against Preprod on contract address
 
 **Twitter:** [x.com/gavelbids](https://x.com/gavelbids)
 
+## How to try it
+
+1. Install the [Lace wallet](https://www.lace.io/) browser extension and switch it to Preprod.
+2. Fund it from the Preprod faucet inside Lace.
+3. Install Docker, clone this repo, and start the local proof server:
+   ```bash
+   docker compose up -d proof-server
+   ```
+4. Open the [live demo](https://gavel-sand.vercel.app) and connect Lace.
+5. Open the verified auction at the contract address above to see a completed
+   lifecycle, or create a new auction and run through bid, settle, finalize,
+   and claim yourself.
+
+Proof generation happens on your machine against the local proof server, not
+on the hosted frontend, so step 3 is required even though the site is live.
+
 Sealed-bid auctions on the Midnight Network. Bids are private commitments.
 Losing bid amounts are never published, not at close, not to the platform,
 not to anyone. The winner and the clearing price are settled on-chain and
